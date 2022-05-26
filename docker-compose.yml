@@ -1,0 +1,109 @@
+version: '3'
+services:
+  # webserver:
+  #   build:
+  #     context: ./
+  #     dockerfile: ./docker/webserver/Dockerfile
+  #   restart: always
+  #   ports:
+  #     - 80:80
+  #     - 443:443
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf
+  #   depends_on:
+  #     backend:
+  #       condition: service_started
+  #     frontend:
+  #       condition: service_started
+
+  db:
+    build:
+      context: ./
+      dockerfile: ./docker/db/Dockerfile
+    restart: always
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=user_tu_salon_cut
+      - POSTGRES_DB=tu_salon_cut
+      - PGDATA=/data/db
+    volumes:
+      - db:/data/db
+    expose:
+      - 5432
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: pg_isready -U user_tu_salon_cut -d tu_salon_cut
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  cache:
+    build:
+      context: ./
+      dockerfile: ./docker/cache/Dockerfile
+    restart: always
+    ports:
+      - '6379:6379'
+    command: redis-server --loglevel warning
+    volumes:
+      - cache:/data
+    healthcheck:
+      test: redis-cli ping
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./
+      dockerfile: ./docker/backend/Dockerfile
+    command: sh -c "yarn install && yarn start:dev"
+    restart: always
+    environment:
+      - NODE_ENV=development
+      - DB_PASSWORD=postgres
+      - DB_USER=user_tu_salon_cut
+      - DB_DATABASE=tu_salon_cut
+      - DB_HOST=db
+      - DB_CLIENT=postgres
+      - REDIS_HOST=cache
+      - SESSION_SECRET_1=newSecret
+      - SESSION_SECRET_2=oldSecret
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+    volumes:
+      - ./backend:/home/node/app/backend
+    ports:
+      - '4000:4000'
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./
+      dockerfile: ./docker/frontend/Dockerfile
+    command: sh -c "yarn install && yarn build && yarn start:prod"
+    restart: always
+    environment:
+      - API_PATH=http://backend:4000
+    volumes:
+      - ./frontend:/home/node/app/frontend
+    ports:
+      - '3000:3000'
+
+  mailhog:
+    image: mailhog/mailhog
+    restart: always
+    ports:
+      - 1025:1025 # smtp server
+      - 8025:8025 # web ui
+
+volumes:
+  db:
+    driver: local
+  cache:
+    driver: local
